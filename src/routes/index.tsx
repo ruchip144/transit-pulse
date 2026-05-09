@@ -379,7 +379,7 @@ function Dashboard() {
                     <XAxis type="number" tick={{ fontSize: 11 }} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
                     <Tooltip
-                      formatter={(v: number, _n, p: { payload: { full: string } }) => [`${v}%`, p.payload.full]}
+                      formatter={(v, _n, p) => [`${v}%`, (p?.payload as { full?: string })?.full ?? ""]}
                     />
                     <Bar dataKey="load" radius={[0, 6, 6, 0]} />
                   </BarChart>
