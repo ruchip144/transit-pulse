@@ -143,6 +143,43 @@
   }
 }
 
+/* ===== Z-index layering ===== */
+/* Leaflet map pane sits at z-index 1 so UI elements always render above it */
+.leaflet-container {
+  z-index: 1 !important;
+}
+.leaflet-pane,
+.leaflet-tile,
+.leaflet-marker-icon,
+.leaflet-marker-shadow,
+.leaflet-tile-pane,
+.leaflet-overlay-pane,
+.leaflet-shadow-pane,
+.leaflet-marker-pane,
+.leaflet-tooltip-pane,
+.leaflet-popup-pane {
+  z-index: 1 !important;
+}
+.leaflet-control-container {
+  z-index: 2 !important;
+}
+
+/* Header, sidebar, and dialogs/modals stay above the map */
+header {
+  position: relative;
+  z-index: 9999;
+}
+aside {
+  position: relative;
+  z-index: 9999;
+  background-color: var(--background);
+}
+[data-radix-dialog-overlay],
+[data-radix-dialog-content],
+[role="dialog"] {
+  z-index: 9999 !important;
+}
+
 /* ===== Map report markers ===== */
 .report-pin {
   position: relative;

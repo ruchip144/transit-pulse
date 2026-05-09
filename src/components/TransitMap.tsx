@@ -28,7 +28,7 @@ export function TransitMap({ segments, overrideColor, reports = [] }: Props) {
       const L = (await import("leaflet")).default;
       if (cancelled || !mapRef.current) return;
       LRef.current = L;
-      const map = L.map(mapRef.current, { zoomControl: true }).setView([12.97, 77.6], 11);
+      const map = L.map(mapRef.current, { zoomControl: true }).setView([12.9716, 77.5946], 12);
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         maxZoom: 19,
         attribution: "© OpenStreetMap",
@@ -122,7 +122,7 @@ export function TransitMap({ segments, overrideColor, reports = [] }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reports]);
 
-  return <div ref={mapRef} className="h-[420px] w-full rounded-lg overflow-hidden border" />;
+  return <div ref={mapRef} className="h-[420px] w-full rounded-lg overflow-hidden border" style={{ zIndex: 1, position: "relative" }} />;
 }
 
 function timeAgo(ts: number): string {
