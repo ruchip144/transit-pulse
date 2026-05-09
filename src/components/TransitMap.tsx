@@ -1,30 +1,46 @@
 import { useEffect, useRef } from "react";
-import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { colorForLoad, loadLabel, type CrowdSegment } from "@/lib/transit-data";
+import { colorForLoad, loadLabel } from "@/lib/transit-data";
+import type { Segment } from "@/lib/gtfs";
 
-type Props = { segments: CrowdSegment[] };
+type Props = { segments: Segment[] };
 
 export function TransitMap({ segments }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstance = useRef<L.Map | null>(null);
-  const layerRef = useRef<L.LayerGroup | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const mapInstance = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const layerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const LRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!mapRef.current || mapInstance.current) return;
-    const map = L.map(mapRef.current, { zoomControl: true }).setView([12.98, 77.6], 12);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "© OpenStreetMap",
-    }).addTo(map);
-    mapInstance.current = map;
-    layerRef.current = L.layerGroup().addTo(map);
+    let cancelled = false;
+    (async () => {
+      if (!mapRef.current || mapInstance.current) return;
+      const L = (await import("leaflet")).default;
+      if (cancelled || !mapRef.current) return;
+      LRef.current = L;
+      const map = L.map(mapRef.current, { zoomControl: true }).setView([12.97, 77.6], 11);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "© OpenStreetMap",
+      }).addTo(map);
+      mapInstance.current = map;
+      layerRef.current = L.layerGroup().addTo(map);
+      drawSegments();
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
+  function drawSegments() {
+    const L = LRef.current;
     const map = mapInstance.current;
     const layer = layerRef.current;
-    if (!map || !layer) return;
+    if (!L || !map || !layer) return;
     layer.clearLayers();
     if (!segments.length) return;
 
@@ -40,21 +56,33 @@ export function TransitMap({ segments }: Props) {
           Load: ${(seg.load_factor * 100).toFixed(0)}% (${loadLabel(seg.load_factor)})
         </div>`
       );
-      // endpoint markers
-      const endpoints = [seg.latlngs[0], seg.latlngs[seg.latlngs.length - 1]];
-      endpoints.forEach((pt) => {
-        L.circleMarker(pt, {
-          radius: 4,
+    });
+
+    // Stop markers (unique per route)
+    const seen = new Set<string>();
+    segments.forEach((seg) => {
+      [seg.from_stop, seg.to_stop].forEach((stop) => {
+        if (seen.has(stop.stop_id)) return;
+        seen.add(stop.stop_id);
+        L.circleMarker([stop.stop_lat, stop.stop_lon], {
+          radius: 5,
           color: "#0f172a",
           fillColor: "#fff",
           fillOpacity: 1,
           weight: 2,
-        }).addTo(layer);
+        })
+          .bindTooltip(stop.stop_name, { direction: "top" })
+          .addTo(layer);
       });
     });
 
     const bounds = L.latLngBounds(segments.flatMap((s) => s.latlngs));
     map.fitBounds(bounds, { padding: [30, 30] });
+  }
+
+  useEffect(() => {
+    drawSegments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [segments]);
 
   return <div ref={mapRef} className="h-[420px] w-full rounded-lg overflow-hidden border" />;
