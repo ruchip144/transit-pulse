@@ -3,9 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
+import { Brain } from "lucide-react";
 import { TransitMap } from "@/components/TransitMap";
+import { StressPredictor, predictStress } from "@/components/StressPredictor";
+import { ReportStatusButton } from "@/components/ReportStatusButton";
 import { colorForLoad, loadLabel } from "@/lib/transit-data";
 import { loadGtfs, deriveAll, type Gtfs, type Derived, type Segment, type DelayPoint } from "@/lib/gtfs";
+import { REPORT_META, type LiveReport } from "@/lib/reports";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +50,10 @@ function Dashboard() {
   const [search, setSearch] = useState("");
   const [hourRange, setHourRange] = useState<[number, number]>([0, 23]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [predictHour, setPredictHour] = useState<number>(new Date().getHours());
+  const [reports, setReports] = useState<LiveReport[]>([]);
+
+  const prediction = useMemo(() => predictStress(predictHour), [predictHour]);
 
   // Auto-select first route once GTFS loads
   useEffect(() => {
