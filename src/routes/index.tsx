@@ -300,13 +300,20 @@ function Dashboard() {
               ))}
             </div>
           </div>
+
+          <StressPredictor hour={predictHour} onChange={setPredictHour} prediction={prediction} />
         </aside>
 
         <section className="lg:col-span-9 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPI label="On-time %" value={`${stats.onTimePct}%`} hint={selectedRoute?.route_long_name} />
             <KPI label="Avg delay" value={`${stats.avgMin} min`} hint={`P90: ${stats.p90} min`} />
-            <KPI label="Peak hour" value={peakHour} hint="Highest avg delay" />
+            <KPI
+              label="Peak hour"
+              value={peakHour}
+              hint="Highest avg delay"
+              brain={prediction.level === "high"}
+            />
             <KPI
               label="Most crowded"
               value={mostCrowded ? `${Math.round(mostCrowded.load_factor * 100)}%` : "—"}
@@ -315,16 +322,73 @@ function Dashboard() {
             />
           </div>
 
-          <Card title="Route + Crowding" subtitle={selectedRoute?.route_long_name}>
-            <TransitMap segments={routeSegments} />
+          {prediction.level === "high" && (
+            <div className="rounded-xl border border-red-300 bg-red-50 text-red-900 px-4 py-3 flex items-center gap-3 animate-fade-in">
+              <Brain className="w-5 h-5 shrink-0" />
+              <div className="flex-1 text-sm">
+                <strong>{prediction.message}</strong>
+                <span className="block text-xs opacity-80">
+                  AI override active — segments shown in dark red on map for {predictHour}:00.
+                </span>
+              </div>
+            </div>
+          )}
+
+          <Card
+            title="Route + Crowding"
+            subtitle={selectedRoute?.route_long_name}
+            action={
+              data ? (
+                <ReportStatusButton
+                  selectedRouteId={selectedRouteId}
+                  gtfs={data.gtfs}
+                  onReport={(r) => setReports((prev) => [...prev, r])}
+                />
+              ) : null
+            }
+          >
+            <TransitMap
+              segments={routeSegments}
+              overrideColor={prediction.overrideColor}
+              reports={reports}
+            />
+            {reports.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Live reports:</span>
+                {(["crowded", "delayed", "ghost"] as const).map((t) => {
+                  const n = reports.filter((r) => r.type === t).length;
+                  if (!n) return null;
+                  const meta = REPORT_META[t];
+                  return (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5"
+                    >
+                      <span className={`report-pin ${meta.cls}`} style={{ width: 10, height: 10 }} />
+                      {meta.label}: {n}
+                    </span>
+                  );
+                })}
+                <button
+                  onClick={() => setReports([])}
+                  className="ml-auto text-muted-foreground hover:text-foreground underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {routeSegments.map((s) => (
                 <div key={s.segment_id} className="flex items-center justify-between rounded-md border p-2 text-sm">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-2.5 h-2.5 shrink-0 rounded-full" style={{ background: colorForLoad(s.load_factor) }} />
+                    <span
+                      className="w-2.5 h-2.5 shrink-0 rounded-full"
+                      style={{ background: prediction.overrideColor ?? colorForLoad(s.load_factor) }}
+                    />
                     <span className="font-medium truncate">{s.segment_name}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                  <span className="text-xs text-muted-foreground shrink-0 ml-2 flex items-center gap-1">
+                    {prediction.overrideColor && <Brain className="w-3 h-3 text-red-700" />}
                     {Math.round(s.load_factor * 100)}% · {loadLabel(s.load_factor)}
                   </span>
                 </div>
