@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { Brain } from "lucide-react";
+import { Brain, Leaf } from "lucide-react";
+import { scoreRoute, formatKg, type SustainabilityScore } from "@/lib/sustainability";
 import { TransitMap } from "@/components/TransitMap";
 import { StressPredictor, predictStress } from "@/components/StressPredictor";
 import { ReportStatusButton } from "@/components/ReportStatusButton";
