@@ -484,25 +484,36 @@ function Dashboard() {
   );
 }
 
-function KPI({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: string }) {
+function KPI({
+  label, value, hint, accent, brain,
+}: { label: string; value: string; hint?: string; accent?: string; brain?: boolean }) {
   return (
     <div className="rounded-xl border bg-card p-4 relative overflow-hidden">
       {accent && <span className="absolute top-0 left-0 right-0 h-1" style={{ background: accent }} />}
-      <div className="text-xs text-muted-foreground uppercase tracking-wider">{label}</div>
+      <div className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+        {label}
+        {brain && <Brain className="w-3 h-3 text-red-700" />}
+      </div>
       <div className="text-2xl font-bold mt-1 tabular-nums">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1 truncate">{hint}</div>}
     </div>
   );
 }
 
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Card({
+  title, subtitle, children, action,
+}: { title: string; subtitle?: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3">
-        <h3 className="font-semibold">{title}</h3>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">{title}</h3>
+          {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+        </div>
+        {action}
       </div>
       {children}
     </div>
   );
 }
+
