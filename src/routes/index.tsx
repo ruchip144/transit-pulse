@@ -256,25 +256,36 @@ function Dashboard() {
               className="mt-2"
             />
             <div className="mt-3 max-h-[360px] overflow-y-auto space-y-1">
-              {filteredRoutes.map((r) => (
-                <button
-                  key={r.route_id}
-                  onClick={() => setSelectedRouteId(r.route_id)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition border ${
-                    selectedRouteId === r.route_id
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background hover:bg-accent border-transparent"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Badge variant={r.mode === "train" ? "default" : "secondary"} className="text-[10px]">
-                      {r.route_short_name}
-                    </Badge>
-                    <span className="font-medium truncate">{r.route_long_name}</span>
-                  </div>
-                  <div className="text-[11px] opacity-70 mt-0.5 capitalize">{r.mode}</div>
-                </button>
-              ))}
+              {filteredRoutes.map((r) => {
+                const sc = sustainabilityByRoute.get(r.route_id);
+                return (
+                  <button
+                    key={r.route_id}
+                    onClick={() => setSelectedRouteId(r.route_id)}
+                    className={`w-full text-left px-3 py-2 rounded-md text-sm transition border ${
+                      selectedRouteId === r.route_id
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background hover:bg-accent border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge variant={r.mode === "train" ? "default" : "secondary"} className="text-[10px]">
+                        {r.route_short_name}
+                      </Badge>
+                      <span className="font-medium truncate">{r.route_long_name}</span>
+                    </div>
+                    <div className="text-[11px] opacity-70 mt-0.5 capitalize flex items-center justify-between gap-2">
+                      <span>{r.mode}</span>
+                      {sc && (
+                        <span className="inline-flex items-center gap-1 font-medium" title={`Saves ~${Math.round(sc.perRiderGrams)} g CO₂ per ride vs. Uber`}>
+                          <Leaf className="w-3 h-3 text-emerald-500" />
+                          {sc.grade} · {formatKg(sc.dailyKg)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
               {!filteredRoutes.length && (
                 <p className="text-xs text-muted-foreground p-2">No routes match.</p>
               )}
