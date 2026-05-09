@@ -180,7 +180,24 @@ function Dashboard() {
       .sort((a, b) => b.avg - a.avg);
   }, [data]);
 
-  if (error) {
+  const sustainabilityByRoute = useMemo(() => {
+    const map = new Map<string, SustainabilityScore>();
+    if (!data) return map;
+    for (const r of data.gtfs.routes) {
+      const segs = data.derived.segmentsByRoute.get(r.route_id) ?? [];
+      map.set(r.route_id, scoreRoute(r, segs));
+    }
+    return map;
+  }, [data]);
+
+  const totalCarbonSavedKg = useMemo(() => {
+    let total = 0;
+    for (const s of sustainabilityByRoute.values()) total += s.dailyKg;
+    return total;
+  }, [sustainabilityByRoute]);
+
+  const selectedScore = selectedRouteId ? sustainabilityByRoute.get(selectedRouteId) : undefined;
+
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="rounded-xl border bg-card p-6 max-w-md text-center">
