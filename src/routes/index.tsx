@@ -198,6 +198,7 @@ function Dashboard() {
 
   const selectedScore = selectedRouteId ? sustainabilityByRoute.get(selectedRouteId) : undefined;
 
+  if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="rounded-xl border bg-card p-6 max-w-md text-center">
