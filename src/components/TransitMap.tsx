@@ -2,15 +2,22 @@ import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 import { colorForLoad, loadLabel } from "@/lib/transit-data";
 import type { Segment } from "@/lib/gtfs";
+import { REPORT_META, type LiveReport } from "@/lib/reports";
 
-type Props = { segments: Segment[] };
+type Props = {
+  segments: Segment[];
+  overrideColor?: string;
+  reports?: LiveReport[];
+};
 
-export function TransitMap({ segments }: Props) {
+export function TransitMap({ segments, overrideColor, reports = [] }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mapInstance = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const layerRef = useRef<any>(null);
+  const segLayerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reportLayerRef = useRef<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const LRef = useRef<any>(null);
 
@@ -27,8 +34,10 @@ export function TransitMap({ segments }: Props) {
         attribution: "© OpenStreetMap",
       }).addTo(map);
       mapInstance.current = map;
-      layerRef.current = L.layerGroup().addTo(map);
+      segLayerRef.current = L.layerGroup().addTo(map);
+      reportLayerRef.current = L.layerGroup().addTo(map);
       drawSegments();
+      drawReports();
     })();
     return () => {
       cancelled = true;
@@ -39,14 +48,15 @@ export function TransitMap({ segments }: Props) {
   function drawSegments() {
     const L = LRef.current;
     const map = mapInstance.current;
-    const layer = layerRef.current;
+    const layer = segLayerRef.current;
     if (!L || !map || !layer) return;
     layer.clearLayers();
     if (!segments.length) return;
 
     segments.forEach((seg) => {
+      const color = overrideColor ?? colorForLoad(seg.load_factor);
       const poly = L.polyline(seg.latlngs, {
-        color: colorForLoad(seg.load_factor),
+        color,
         weight: 7,
         opacity: 0.9,
       }).addTo(layer);
@@ -54,11 +64,11 @@ export function TransitMap({ segments }: Props) {
         `<div style="font-family: system-ui; font-size:12px">
           <strong>${seg.segment_name}</strong><br/>
           Load: ${(seg.load_factor * 100).toFixed(0)}% (${loadLabel(seg.load_factor)})
+          ${overrideColor ? '<br/><em style="color:#dc2626">⚠ AI: high congestion predicted</em>' : ""}
         </div>`
       );
     });
 
-    // Stop markers (unique per route)
     const seen = new Set<string>();
     segments.forEach((seg) => {
       [seg.from_stop, seg.to_stop].forEach((stop) => {
@@ -80,10 +90,45 @@ export function TransitMap({ segments }: Props) {
     map.fitBounds(bounds, { padding: [30, 30] });
   }
 
+  function drawReports() {
+    const L = LRef.current;
+    const layer = reportLayerRef.current;
+    if (!L || !layer) return;
+    layer.clearLayers();
+    reports.forEach((r) => {
+      const meta = REPORT_META[r.type];
+      const icon = L.divIcon({
+        className: "",
+        html: `<div class="report-pin ${meta.cls}"><span>${meta.short}</span></div>`,
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      });
+      L.marker([r.lat, r.lng], { icon })
+        .bindTooltip(
+          `<strong>${meta.label}</strong><br/>${r.stop_name} · ${timeAgo(r.ts)}`,
+          { direction: "top" }
+        )
+        .addTo(layer);
+    });
+  }
+
   useEffect(() => {
     drawSegments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments]);
+  }, [segments, overrideColor]);
+
+  useEffect(() => {
+    drawReports();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports]);
 
   return <div ref={mapRef} className="h-[420px] w-full rounded-lg overflow-hidden border" />;
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return `${s}s ago`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  return `${Math.floor(m / 60)}h ago`;
 }
