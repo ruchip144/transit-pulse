@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { Brain } from "lucide-react";
+import { Brain, Leaf } from "lucide-react";
+import { scoreRoute, formatKg, type SustainabilityScore } from "@/lib/sustainability";
 import { TransitMap } from "@/components/TransitMap";
 import { StressPredictor, predictStress } from "@/components/StressPredictor";
 import { ReportStatusButton } from "@/components/ReportStatusButton";
@@ -179,6 +180,24 @@ function Dashboard() {
       .sort((a, b) => b.avg - a.avg);
   }, [data]);
 
+  const sustainabilityByRoute = useMemo(() => {
+    const map = new Map<string, SustainabilityScore>();
+    if (!data) return map;
+    for (const r of data.gtfs.routes) {
+      const segs = data.derived.segmentsByRoute.get(r.route_id) ?? [];
+      map.set(r.route_id, scoreRoute(r, segs));
+    }
+    return map;
+  }, [data]);
+
+  const totalCarbonSavedKg = useMemo(() => {
+    let total = 0;
+    for (const s of sustainabilityByRoute.values()) total += s.dailyKg;
+    return total;
+  }, [sustainabilityByRoute]);
+
+  const selectedScore = selectedRouteId ? sustainabilityByRoute.get(selectedRouteId) : undefined;
+
   if (error) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
@@ -237,25 +256,36 @@ function Dashboard() {
               className="mt-2"
             />
             <div className="mt-3 max-h-[360px] overflow-y-auto space-y-1">
-              {filteredRoutes.map((r) => (
-                <button
-                  key={r.route_id}
-                  onClick={() => setSelectedRouteId(r.route_id)}
-                  className={`w-full text-left px-3 py-2 rounded-md text-sm transition border ${
-                    selectedRouteId === r.route_id
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background hover:bg-accent border-transparent"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <Badge variant={r.mode === "train" ? "default" : "secondary"} className="text-[10px]">
-                      {r.route_short_name}
-                    </Badge>
-                    <span className="font-medium truncate">{r.route_long_name}</span>
-                  </div>
-                  <div className="text-[11px] opacity-70 mt-0.5 capitalize">{r.mode}</div>
-                </button>
-              ))}
+              {filteredRoutes.map((r) => {
+                const sc = sustainabilityByRoute.get(r.route_id);
+                return (
+                  <button
+                    key={r.route_id}
+                    onClick={() => setSelectedRouteId(r.route_id)}
+                    className={`w-full text-left px-3 py-2 rounded-md text-sm transition border ${
+                      selectedRouteId === r.route_id
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background hover:bg-accent border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Badge variant={r.mode === "train" ? "default" : "secondary"} className="text-[10px]">
+                        {r.route_short_name}
+                      </Badge>
+                      <span className="font-medium truncate">{r.route_long_name}</span>
+                    </div>
+                    <div className="text-[11px] opacity-70 mt-0.5 capitalize flex items-center justify-between gap-2">
+                      <span>{r.mode}</span>
+                      {sc && (
+                        <span className="inline-flex items-center gap-1 font-medium" title={`Saves ~${Math.round(sc.perRiderGrams)} g CO₂ per ride vs. Uber`}>
+                          <Leaf className="w-3 h-3 text-emerald-500" />
+                          {sc.grade} · {formatKg(sc.dailyKg)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
               {!filteredRoutes.length && (
                 <p className="text-xs text-muted-foreground p-2">No routes match.</p>
               )}
@@ -301,11 +331,24 @@ function Dashboard() {
             </div>
           </div>
 
+          <div className="rounded-xl border bg-gradient-to-br from-emerald-50 to-card p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700">
+              <Leaf className="w-4 h-4" />
+              Carbon saved today
+            </div>
+            <div className="mt-2 text-3xl font-bold tabular-nums text-emerald-700">
+              {formatKg(totalCarbonSavedKg)}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Estimated CO₂ riders avoid by choosing transit instead of an Uber, across all routes today.
+            </p>
+          </div>
+
           <StressPredictor hour={predictHour} onChange={setPredictHour} prediction={prediction} />
         </aside>
 
         <section className="lg:col-span-9 space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KPI label="On-time %" value={`${stats.onTimePct}%`} hint={selectedRoute?.route_long_name} />
             <KPI label="Avg delay" value={`${stats.avgMin} min`} hint={`P90: ${stats.p90} min`} />
             <KPI
@@ -319,6 +362,16 @@ function Dashboard() {
               value={mostCrowded ? `${Math.round(mostCrowded.load_factor * 100)}%` : "—"}
               hint={mostCrowded?.segment_name}
               accent={mostCrowded ? colorForLoad(mostCrowded.load_factor) : undefined}
+            />
+            <KPI
+              label="Sustainability"
+              value={selectedScore ? `${selectedScore.grade}` : "—"}
+              hint={
+                selectedScore
+                  ? `${Math.round(selectedScore.perRiderGrams)} g CO₂ saved/ride · ${selectedScore.distanceKm.toFixed(1)} km`
+                  : undefined
+              }
+              leaf
             />
           </div>
 
@@ -485,14 +538,16 @@ function Dashboard() {
 }
 
 function KPI({
-  label, value, hint, accent, brain,
-}: { label: string; value: string; hint?: string; accent?: string; brain?: boolean }) {
+  label, value, hint, accent, brain, leaf,
+}: { label: string; value: string; hint?: string; accent?: string; brain?: boolean; leaf?: boolean }) {
   return (
     <div className="rounded-xl border bg-card p-4 relative overflow-hidden">
       {accent && <span className="absolute top-0 left-0 right-0 h-1" style={{ background: accent }} />}
+      {leaf && <span className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />}
       <div className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1">
         {label}
         {brain && <Brain className="w-3 h-3 text-red-700" />}
+        {leaf && <Leaf className="w-3 h-3 text-emerald-600" />}
       </div>
       <div className="text-2xl font-bold mt-1 tabular-nums">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1 truncate">{hint}</div>}
