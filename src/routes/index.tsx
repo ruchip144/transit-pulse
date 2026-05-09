@@ -331,6 +331,19 @@ function Dashboard() {
             </div>
           </div>
 
+          <div className="rounded-xl border bg-gradient-to-br from-emerald-50 to-card p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-emerald-700">
+              <Leaf className="w-4 h-4" />
+              Carbon saved today
+            </div>
+            <div className="mt-2 text-3xl font-bold tabular-nums text-emerald-700">
+              {formatKg(totalCarbonSavedKg)}
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Estimated CO₂ riders avoid by choosing transit instead of an Uber, across all routes today.
+            </p>
+          </div>
+
           <StressPredictor hour={predictHour} onChange={setPredictHour} prediction={prediction} />
         </aside>
 
