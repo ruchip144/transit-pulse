@@ -348,7 +348,7 @@ function Dashboard() {
         </aside>
 
         <section className="lg:col-span-9 space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <KPI label="On-time %" value={`${stats.onTimePct}%`} hint={selectedRoute?.route_long_name} />
             <KPI label="Avg delay" value={`${stats.avgMin} min`} hint={`P90: ${stats.p90} min`} />
             <KPI
@@ -362,6 +362,16 @@ function Dashboard() {
               value={mostCrowded ? `${Math.round(mostCrowded.load_factor * 100)}%` : "—"}
               hint={mostCrowded?.segment_name}
               accent={mostCrowded ? colorForLoad(mostCrowded.load_factor) : undefined}
+            />
+            <KPI
+              label="Sustainability"
+              value={selectedScore ? `${selectedScore.grade}` : "—"}
+              hint={
+                selectedScore
+                  ? `${Math.round(selectedScore.perRiderGrams)} g CO₂ saved/ride · ${selectedScore.distanceKm.toFixed(1)} km`
+                  : undefined
+              }
+              leaf
             />
           </div>
 
