@@ -3,9 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
+import { Brain } from "lucide-react";
 import { TransitMap } from "@/components/TransitMap";
+import { StressPredictor, predictStress } from "@/components/StressPredictor";
+import { ReportStatusButton } from "@/components/ReportStatusButton";
 import { colorForLoad, loadLabel } from "@/lib/transit-data";
 import { loadGtfs, deriveAll, type Gtfs, type Derived, type Segment, type DelayPoint } from "@/lib/gtfs";
+import { REPORT_META, type LiveReport } from "@/lib/reports";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +50,10 @@ function Dashboard() {
   const [search, setSearch] = useState("");
   const [hourRange, setHourRange] = useState<[number, number]>([0, 23]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
+  const [predictHour, setPredictHour] = useState<number>(new Date().getHours());
+  const [reports, setReports] = useState<LiveReport[]>([]);
+
+  const prediction = useMemo(() => predictStress(predictHour), [predictHour]);
 
   // Auto-select first route once GTFS loads
   useEffect(() => {
@@ -292,13 +300,20 @@ function Dashboard() {
               ))}
             </div>
           </div>
+
+          <StressPredictor hour={predictHour} onChange={setPredictHour} prediction={prediction} />
         </aside>
 
         <section className="lg:col-span-9 space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPI label="On-time %" value={`${stats.onTimePct}%`} hint={selectedRoute?.route_long_name} />
             <KPI label="Avg delay" value={`${stats.avgMin} min`} hint={`P90: ${stats.p90} min`} />
-            <KPI label="Peak hour" value={peakHour} hint="Highest avg delay" />
+            <KPI
+              label="Peak hour"
+              value={peakHour}
+              hint="Highest avg delay"
+              brain={prediction.level === "high"}
+            />
             <KPI
               label="Most crowded"
               value={mostCrowded ? `${Math.round(mostCrowded.load_factor * 100)}%` : "—"}
@@ -307,16 +322,73 @@ function Dashboard() {
             />
           </div>
 
-          <Card title="Route + Crowding" subtitle={selectedRoute?.route_long_name}>
-            <TransitMap segments={routeSegments} />
+          {prediction.level === "high" && (
+            <div className="rounded-xl border border-red-300 bg-red-50 text-red-900 px-4 py-3 flex items-center gap-3 animate-fade-in">
+              <Brain className="w-5 h-5 shrink-0" />
+              <div className="flex-1 text-sm">
+                <strong>{prediction.message}</strong>
+                <span className="block text-xs opacity-80">
+                  AI override active — segments shown in dark red on map for {predictHour}:00.
+                </span>
+              </div>
+            </div>
+          )}
+
+          <Card
+            title="Route + Crowding"
+            subtitle={selectedRoute?.route_long_name}
+            action={
+              data ? (
+                <ReportStatusButton
+                  selectedRouteId={selectedRouteId}
+                  gtfs={data.gtfs}
+                  onReport={(r) => setReports((prev) => [...prev, r])}
+                />
+              ) : null
+            }
+          >
+            <TransitMap
+              segments={routeSegments}
+              overrideColor={prediction.overrideColor}
+              reports={reports}
+            />
+            {reports.length > 0 && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-muted-foreground">Live reports:</span>
+                {(["crowded", "delayed", "ghost"] as const).map((t) => {
+                  const n = reports.filter((r) => r.type === t).length;
+                  if (!n) return null;
+                  const meta = REPORT_META[t];
+                  return (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5"
+                    >
+                      <span className={`report-pin ${meta.cls}`} style={{ width: 10, height: 10 }} />
+                      {meta.label}: {n}
+                    </span>
+                  );
+                })}
+                <button
+                  onClick={() => setReports([])}
+                  className="ml-auto text-muted-foreground hover:text-foreground underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {routeSegments.map((s) => (
                 <div key={s.segment_id} className="flex items-center justify-between rounded-md border p-2 text-sm">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-2.5 h-2.5 shrink-0 rounded-full" style={{ background: colorForLoad(s.load_factor) }} />
+                    <span
+                      className="w-2.5 h-2.5 shrink-0 rounded-full"
+                      style={{ background: prediction.overrideColor ?? colorForLoad(s.load_factor) }}
+                    />
                     <span className="font-medium truncate">{s.segment_name}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                  <span className="text-xs text-muted-foreground shrink-0 ml-2 flex items-center gap-1">
+                    {prediction.overrideColor && <Brain className="w-3 h-3 text-red-700" />}
                     {Math.round(s.load_factor * 100)}% · {loadLabel(s.load_factor)}
                   </span>
                 </div>
@@ -412,25 +484,36 @@ function Dashboard() {
   );
 }
 
-function KPI({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: string }) {
+function KPI({
+  label, value, hint, accent, brain,
+}: { label: string; value: string; hint?: string; accent?: string; brain?: boolean }) {
   return (
     <div className="rounded-xl border bg-card p-4 relative overflow-hidden">
       {accent && <span className="absolute top-0 left-0 right-0 h-1" style={{ background: accent }} />}
-      <div className="text-xs text-muted-foreground uppercase tracking-wider">{label}</div>
+      <div className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+        {label}
+        {brain && <Brain className="w-3 h-3 text-red-700" />}
+      </div>
       <div className="text-2xl font-bold mt-1 tabular-nums">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1 truncate">{hint}</div>}
     </div>
   );
 }
 
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function Card({
+  title, subtitle, children, action,
+}: { title: string; subtitle?: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div className="rounded-xl border bg-card p-4">
-      <div className="mb-3">
-        <h3 className="font-semibold">{title}</h3>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">{title}</h3>
+          {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+        </div>
+        {action}
       </div>
       {children}
     </div>
   );
 }
+
