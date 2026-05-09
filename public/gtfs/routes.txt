@@ -1,0 +1,4 @@
+route_id,route_short_name,route_long_name,route_type
+B500A,500A,Majestic ↔ Electronic City,3
+B401K,401K,Hebbal ↔ Silk Board,3
+TPL,PL,Purple Line: Whitefield ↔ Challaghatta,1

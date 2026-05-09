@@ -1,10 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { TransitMap } from "@/components/TransitMap";
-import { routes, delays, crowding, colorForLoad, loadLabel } from "@/lib/transit-data";
+import { colorForLoad, loadLabel } from "@/lib/transit-data";
+import { loadGtfs, deriveAll, type Gtfs, type Derived, type Segment, type DelayPoint } from "@/lib/gtfs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,39 +22,63 @@ export const Route = createFileRoute("/")({
 
 type Mode = "all" | "bus" | "train";
 
+function useGtfs() {
+  const [data, setData] = useState<{ gtfs: Gtfs; derived: Derived } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    loadGtfs()
+      .then((g) => {
+        if (cancelled) return;
+        setData({ gtfs: g, derived: deriveAll(g) });
+      })
+      .catch((e) => !cancelled && setError(String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return { data, error };
+}
+
 function Dashboard() {
+  const { data, error } = useGtfs();
   const [mode, setMode] = useState<Mode>("all");
   const [search, setSearch] = useState("");
   const [hourRange, setHourRange] = useState<[number, number]>([0, 23]);
-  const [selectedRouteId, setSelectedRouteId] = useState<string>("R1");
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
 
-  const filteredRoutes = useMemo(
-    () =>
-      routes.filter(
-        (r) =>
-          (mode === "all" || r.route_type === mode) &&
-          (r.route_long_name.toLowerCase().includes(search.toLowerCase()) ||
-            r.route_short_name.toLowerCase().includes(search.toLowerCase()))
-      ),
-    [mode, search]
-  );
+  // Auto-select first route once GTFS loads
+  useEffect(() => {
+    if (data && !selectedRouteId && data.gtfs.routes.length) {
+      setSelectedRouteId(data.gtfs.routes[0].route_id);
+    }
+  }, [data, selectedRouteId]);
 
-  const selectedRoute = routes.find((r) => r.route_id === selectedRouteId);
+  const filteredRoutes = useMemo(() => {
+    if (!data) return [];
+    return data.gtfs.routes.filter(
+      (r) =>
+        (mode === "all" || r.mode === mode) &&
+        (r.route_long_name.toLowerCase().includes(search.toLowerCase()) ||
+          r.route_short_name.toLowerCase().includes(search.toLowerCase()))
+    );
+  }, [data, mode, search]);
 
-  const routeDelays = useMemo(
-    () =>
-      delays.filter((d) => {
-        if (d.route_id !== selectedRouteId) return false;
-        const h = new Date(d.ts).getUTCHours();
-        return h >= hourRange[0] && h <= hourRange[1];
-      }),
-    [selectedRouteId, hourRange]
-  );
+  const selectedRoute = data?.gtfs.routes.find((r) => r.route_id === selectedRouteId) ?? null;
 
-  const routeSegments = useMemo(
-    () => crowding.filter((c) => c.route_id === selectedRouteId),
-    [selectedRouteId]
-  );
+  const routeDelays: DelayPoint[] = useMemo(() => {
+    if (!data || !selectedRouteId) return [];
+    const all = data.derived.delaysByRoute.get(selectedRouteId) ?? [];
+    return all.filter((d) => {
+      const h = new Date(d.ts).getUTCHours();
+      return h >= hourRange[0] && h <= hourRange[1];
+    });
+  }, [data, selectedRouteId, hourRange]);
+
+  const routeSegments: Segment[] = useMemo(() => {
+    if (!data || !selectedRouteId) return [];
+    return data.derived.segmentsByRoute.get(selectedRouteId) ?? [];
+  }, [data, selectedRouteId]);
 
   const stats = useMemo(() => {
     if (!routeDelays.length) return { avgMin: "0.0", onTimePct: 0, p90: "0.0" };
@@ -61,7 +86,11 @@ function Dashboard() {
     const onTime = routeDelays.filter((p) => p.delay_seconds <= 60).length / routeDelays.length;
     const sorted = [...routeDelays].map((d) => d.delay_seconds).sort((a, b) => a - b);
     const p90 = sorted[Math.floor(sorted.length * 0.9)] ?? 0;
-    return { avgMin: (avgSec / 60).toFixed(1), onTimePct: Math.round(onTime * 100), p90: (p90 / 60).toFixed(1) };
+    return {
+      avgMin: (avgSec / 60).toFixed(1),
+      onTimePct: Math.round(onTime * 100),
+      p90: (p90 / 60).toFixed(1),
+    };
   }, [routeDelays]);
 
   const hourBuckets = useMemo(() => {
@@ -81,13 +110,13 @@ function Dashboard() {
   const peakHour = useMemo(() => {
     if (!hourBuckets.length) return "—";
     const top = [...hourBuckets].sort((a, b) => b.avgDelay - a.avgDelay)[0];
-    return top.hour;
+    return top.avgDelay > 0 ? top.hour : "—";
   }, [hourBuckets]);
 
   const delayLine = useMemo(
     () =>
       routeDelays.map((p) => ({
-        time: new Date(p.ts).toISOString().slice(11, 16),
+        time: p.ts.slice(11, 16),
         delay: +(p.delay_seconds / 60).toFixed(2),
       })),
     [routeDelays]
@@ -108,34 +137,58 @@ function Dashboard() {
     return buckets;
   }, [routeDelays]);
 
+  const allSegments: Segment[] = useMemo(() => {
+    if (!data) return [];
+    return Array.from(data.derived.segmentsByRoute.values()).flat();
+  }, [data]);
+
   const topCrowded = useMemo(
     () =>
-      [...crowding]
+      [...allSegments]
         .sort((a, b) => b.load_factor - a.load_factor)
         .slice(0, 6)
         .map((s) => ({
-          name: `${s.segment_id}`,
+          name: s.segment_id,
           full: s.segment_name,
           load: +(s.load_factor * 100).toFixed(0),
           fill: colorForLoad(s.load_factor),
         })),
-    []
+    [allSegments]
   );
 
   const mostCrowded = useMemo(() => {
-    const onRoute = [...routeSegments].sort((a, b) => b.load_factor - a.load_factor)[0];
-    return onRoute;
+    return [...routeSegments].sort((a, b) => b.load_factor - a.load_factor)[0];
   }, [routeSegments]);
 
   const topDelayedRoutes = useMemo(() => {
-    return routes
+    if (!data) return [];
+    return data.gtfs.routes
       .map((r) => {
-        const pts = delays.filter((d) => d.route_id === r.route_id);
+        const pts = data.derived.delaysByRoute.get(r.route_id) ?? [];
         const avg = pts.length ? pts.reduce((a, p) => a + p.delay_seconds, 0) / pts.length / 60 : 0;
-        return { route: r.route_short_name, avg: +avg.toFixed(2), id: r.route_id };
+        return { route: r.route_short_name, long: r.route_long_name, avg: +avg.toFixed(2), id: r.route_id };
       })
       .sort((a, b) => b.avg - a.avg);
-  }, []);
+  }, [data]);
+
+  if (error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="rounded-xl border bg-card p-6 max-w-md text-center">
+          <h2 className="font-semibold text-destructive">Failed to load GTFS feed</h2>
+          <p className="text-sm text-muted-foreground mt-2">{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground text-sm">
+        Loading GTFS data…
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -144,34 +197,33 @@ function Dashboard() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Transit Efficiency Dashboard</h1>
-              <p className="text-sm text-muted-foreground">Routes, delays, peak hours & crowding</p>
+              <p className="text-sm text-muted-foreground">
+                {data.gtfs.routes.length} routes · {data.gtfs.stops.size} stops · GTFS-derived segments
+              </p>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex rounded-md border bg-background p-1">
-                {(["all", "bus", "train"] as Mode[]).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setMode(m)}
-                    className={`px-3 py-1 text-xs font-medium rounded capitalize transition ${
-                      mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {m === "all" ? "Bus + Train" : m}
-                  </button>
-                ))}
-              </div>
+            <div className="inline-flex rounded-md border bg-background p-1">
+              {(["all", "bus", "train"] as Mode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMode(m)}
+                  className={`px-3 py-1 text-xs font-medium rounded capitalize transition ${
+                    mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {m === "all" ? "Bus + Train" : m}
+                </button>
+              ))}
             </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Sidebar */}
         <aside className="lg:col-span-3 space-y-4">
           <div className="rounded-xl border bg-card p-4">
             <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Search routes</label>
             <Input
-              placeholder="e.g. Airport, T2…"
+              placeholder="e.g. Whitefield, 500A…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="mt-2"
@@ -188,12 +240,12 @@ function Dashboard() {
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    <Badge variant={r.route_type === "train" ? "default" : "secondary"} className="text-[10px]">
+                    <Badge variant={r.mode === "train" ? "default" : "secondary"} className="text-[10px]">
                       {r.route_short_name}
                     </Badge>
-                    <span className="font-medium">{r.route_long_name}</span>
+                    <span className="font-medium truncate">{r.route_long_name}</span>
                   </div>
-                  <div className="text-[11px] opacity-70 mt-0.5 capitalize">{r.route_type}</div>
+                  <div className="text-[11px] opacity-70 mt-0.5 capitalize">{r.mode}</div>
                 </button>
               ))}
               {!filteredRoutes.length && (
@@ -223,7 +275,9 @@ function Dashboard() {
           </div>
 
           <div className="rounded-xl border bg-card p-4">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">Crowding legend</h3>
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+              Crowding legend
+            </h3>
             <div className="space-y-2 text-xs">
               {[
                 { lf: 0.2, label: "Light (<40%)" },
@@ -240,9 +294,7 @@ function Dashboard() {
           </div>
         </aside>
 
-        {/* Main */}
         <section className="lg:col-span-9 space-y-6">
-          {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPI label="On-time %" value={`${stats.onTimePct}%`} hint={selectedRoute?.route_long_name} />
             <KPI label="Avg delay" value={`${stats.avgMin} min`} hint={`P90: ${stats.p90} min`} />
@@ -250,22 +302,21 @@ function Dashboard() {
             <KPI
               label="Most crowded"
               value={mostCrowded ? `${Math.round(mostCrowded.load_factor * 100)}%` : "—"}
-              hint={mostCrowded ? mostCrowded.segment_name : undefined}
+              hint={mostCrowded?.segment_name}
               accent={mostCrowded ? colorForLoad(mostCrowded.load_factor) : undefined}
             />
           </div>
 
-          {/* Map */}
           <Card title="Route + Crowding" subtitle={selectedRoute?.route_long_name}>
             <TransitMap segments={routeSegments} />
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
               {routeSegments.map((s) => (
                 <div key={s.segment_id} className="flex items-center justify-between rounded-md border p-2 text-sm">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: colorForLoad(s.load_factor) }} />
-                    <span className="font-medium">{s.segment_name}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2.5 h-2.5 shrink-0 rounded-full" style={{ background: colorForLoad(s.load_factor) }} />
+                    <span className="font-medium truncate">{s.segment_name}</span>
                   </div>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-muted-foreground shrink-0 ml-2">
                     {Math.round(s.load_factor * 100)}% · {loadLabel(s.load_factor)}
                   </span>
                 </div>
@@ -274,12 +325,16 @@ function Dashboard() {
           </Card>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <Card title="Delay over time" subtitle="Minutes per observation">
+            <Card title="Delay over time" subtitle="Minutes per scheduled stop time">
               <div className="h-64">
                 <ResponsiveContainer>
                   <LineChart data={delayLine}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.9 0.01 250)" />
-                    <XAxis dataKey="time" tick={{ fontSize: 10 }} interval={Math.ceil(delayLine.length / 8)} />
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 10 }}
+                      interval={Math.max(0, Math.ceil(delayLine.length / 8))}
+                    />
                     <YAxis tick={{ fontSize: 11 }} />
                     <Tooltip />
                     <Line type="monotone" dataKey="delay" stroke="oklch(0.55 0.18 255)" strokeWidth={2} dot={false} />
@@ -322,20 +377,18 @@ function Dashboard() {
                   <BarChart data={topCrowded} layout="vertical" margin={{ left: 16 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="oklch(0.9 0.01 250)" />
                     <XAxis type="number" tick={{ fontSize: 11 }} />
-                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={60} />
-                    <Tooltip formatter={(v: number, _n, p) => [`${v}%`, p.payload.full]} />
-                    <Bar dataKey="load" radius={[0, 6, 6, 0]}>
-                      {topCrowded.map((d) => (
-                        <Bar key={d.name} dataKey="load" fill={d.fill} />
-                      ))}
-                    </Bar>
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
+                    <Tooltip
+                      formatter={(v, _n, p) => [`${v}%`, (p?.payload as { full?: string })?.full ?? ""]}
+                    />
+                    <Bar dataKey="load" radius={[0, 6, 6, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </Card>
           </div>
 
-          <Card title="Top delayed routes" subtitle="Average delay (min) across full day">
+          <Card title="Top delayed routes" subtitle="Average delay (min) across all scheduled stops">
             <div className="divide-y">
               {topDelayedRoutes.map((r, i) => (
                 <button
@@ -343,12 +396,12 @@ function Dashboard() {
                   onClick={() => setSelectedRouteId(r.id)}
                   className="w-full flex items-center justify-between py-2.5 px-1 hover:bg-accent rounded transition text-left"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <span className="text-xs text-muted-foreground w-5">#{i + 1}</span>
                     <Badge variant="secondary">{r.route}</Badge>
-                    <span className="text-sm">{routes.find((x) => x.route_id === r.id)?.route_long_name}</span>
+                    <span className="text-sm truncate">{r.long}</span>
                   </div>
-                  <span className="text-sm font-semibold tabular-nums">{r.avg} min</span>
+                  <span className="text-sm font-semibold tabular-nums shrink-0 ml-2">{r.avg} min</span>
                 </button>
               ))}
             </div>
