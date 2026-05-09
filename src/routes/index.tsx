@@ -538,14 +538,16 @@ function Dashboard() {
 }
 
 function KPI({
-  label, value, hint, accent, brain,
-}: { label: string; value: string; hint?: string; accent?: string; brain?: boolean }) {
+  label, value, hint, accent, brain, leaf,
+}: { label: string; value: string; hint?: string; accent?: string; brain?: boolean; leaf?: boolean }) {
   return (
     <div className="rounded-xl border bg-card p-4 relative overflow-hidden">
       {accent && <span className="absolute top-0 left-0 right-0 h-1" style={{ background: accent }} />}
+      {leaf && <span className="absolute top-0 left-0 right-0 h-1 bg-emerald-500" />}
       <div className="text-xs text-muted-foreground uppercase tracking-wider flex items-center gap-1">
         {label}
         {brain && <Brain className="w-3 h-3 text-red-700" />}
+        {leaf && <Leaf className="w-3 h-3 text-emerald-600" />}
       </div>
       <div className="text-2xl font-bold mt-1 tabular-nums">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-1 truncate">{hint}</div>}
