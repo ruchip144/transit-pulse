@@ -143,6 +143,28 @@
   }
 }
 
+/* ===== Z-index layering ===== */
+.leaflet-container {
+  z-index: 1 !important;
+}
+
+/* Header sits above the map */
+header {
+  position: relative;
+  z-index: 1000;
+}
+
+/* Sidebar sits above the map */
+aside {
+  position: relative;
+  z-index: 1000;
+}
+
+/* Radix Dialog portal (Report modal overlay + content) */
+[data-radix-portal] {
+  z-index: 1100;
+}
+
 /* ===== Map report markers ===== */
 .report-pin {
   position: relative;
